@@ -3896,7 +3896,10 @@ qemuDomainRemoveHostDevice(virQEMUDriverPtr driver,
 
     switch ((virDomainHostdevSubsysType) hostdev->source.subsys.type) {
     case VIR_DOMAIN_HOSTDEV_SUBSYS_TYPE_PCI:
-        qemuHostdevReAttachPCIDevices(driver, vm->def->name, &hostdev, 1);
+        if (is_vfio)
+            qemuHostdevReleasePCIDevices(driver, vm->def->name, &hostdev, 1);
+        else
+            qemuHostdevReAttachPCIDevices(driver, vm->def->name, &hostdev, 1);
         qemuDomainReleaseDeviceAddress(vm, hostdev->info, NULL);
         /* QEMU might no longer need to lock as much memory, eg. we just
          * detached the last VFIO device, so adjust the limit here */
@@ -3924,6 +3927,17 @@ qemuDomainRemoveHostDevice(virQEMUDriverPtr driver,
         networkReleaseActualDevice(vm->def, net);
         virDomainNetDefFree(net);
     }
+
+    if (is_vfio) {
+        int iommu_group =
+            virPCIDeviceAddressGetIOMMUGroupNum(&hostdev->source.subsys.u.pci.addr);
+        if (virHostdevPCIDeviceGroupUnbindable(driver->hostdevMgr,
+                                               iommu_group)) {
+            virHostdevPCIDeviceGroupUnbind(driver->hostdevMgr,
+                                           iommu_group);
+        }
+    }
+
 
     ret = 0;
 
